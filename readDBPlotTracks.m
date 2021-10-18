@@ -88,6 +88,8 @@ for i=222:222
     min_y = min([currTracks.Y]) - 20;
     max_y = max([max([currTracks.Y]) + 20, 20]);
     
+    output_filename = 'images/track_result.gif';
+    count = 1;
     for frameId = minFrame:maxFrame
         ind_d = find([Detections.Frame] == frameId);
         ind_t = find([currTracks.Frame] == frameId);
@@ -117,8 +119,17 @@ for i=222:222
                                id);
                 axis([min_x max_x min_y max_y])
             end
+            f = getframe(fig); 
+            im = frame2im(f); 
+            [imind,cm] = rgb2ind(im,256); 
+            if count == 1
+                imwrite(imind,cm,output_filename, 'gif', 'Loopcount',inf);
+            else
+                imwrite(imind,cm,output_filename,'gif','WriteMode','append'); 
+            end
             pause(0.1);
             clf(fig);
+            count = count + 1;
         end
     end
 end
