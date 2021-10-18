@@ -7,15 +7,15 @@ clear
 clc
 warning('off')
 
-%% Basic SQL Querying GTTR4CPU::LidarObjects data
+%% Basic SQL Querying GTTRAnalysis::LidarObjects data
 
-conn = database('GTTR4CPU','','');
+conn = database('GTTRAnalysis','','');
 % select the runids to process
 for runId=222:222
     for iLidarNum=1:2
         % read summary data for runId to find initTime and finalTime
         % sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTR4CPU].[dbo].[Lidar1Obj] where RunId = ';
-        sqlStr1 = sprintf('SELECT [TimeCs], [Frame] FROM [GTTR4CPU].[dbo].[Lidar%uObjCs] where RunId = ', iLidarNum);
+        sqlStr1 = sprintf('SELECT [TimeCs], [Frame] FROM [GTTRAnalysis].[dbo].[Lidar%uObjCs] where RunId = ', iLidarNum);
         sqlStr2 = ' order by TimeCs, Frame';
         sqlStr = [sqlStr1 num2str(runId) sqlStr2];
         curs = exec(conn,sqlStr); 
@@ -36,9 +36,9 @@ for runId=222:222
 
 
             %Read the objects for the RunId
-            %sqlStr1 = ' SELECT * FROM [GTTR4CPU].[dbo].[Lidar1ObjCs] where runid = ';
+            %sqlStr1 = ' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar1ObjCs] where runid = ';
             %sqlStr2 = '  and TimeCs >= 0 order by Vehicle, RunId, TimeCs, ObjCnt';
-            sqlStr1 = sprintf(' SELECT * FROM [GTTR4CPU].[dbo].[Lidar%uObjCs] where runid = %u', iLidarNum, runId);
+            sqlStr1 = sprintf(' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar%uObjCs] where runid = %u', iLidarNum, runId);
             sqlStr1 = sprintf('%s and abs(1 - 1/(1+SQUARE(((TimeCs-1435)/90))) - (30.06+X)/24.23) < .3 and TimeCs > 1300 and Y > 0 and Y < 2', sqlStr1);
             sqlStr2 = '  order by Vehicle, RunId, TimeCs, ObjCnt';
             
@@ -55,7 +55,7 @@ for runId=222:222
             % From "Distance-IoU Loss: Faster and Better Learning for
             % Bounding Box Regression"
             % TODO: Have to check the threshold
-            costOfNonAssignment = 1.5;
+            costOfNonAssignment = 2;
             
             % State vector for Kalman box prediction
             % x = [cx, cy, cz, l, w, h, theta, vx, vy, vz, vl, vw, vh,
@@ -100,13 +100,18 @@ for runId=222:222
                         num_tracks = num_tracks + 1;
                     end
                 else
-                    ind = find(ObjectsC.Frame == frameId);
+                    for t = 1:size(currTracks, 1)
+                        % run prediction step of kalman filter to get updated 
+                        % state and covariance
+                        [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
+                    end
+                    curr_det_ind = find(ObjectsC.Frame == frameId);
                     
                     % we have to associate the detections to tracks
-                    cost_matrix = zeros(size(currTracks, 1), numel(ind));
+                    cost_matrix = zeros(size(currTracks, 1), numel(curr_det_ind));
                     for t = 1:size(currTracks,1)
-                        for j = 1:numel(ind)
-                            cost = estimate_3D_GIOU(currTracks(t), Detections(ind(j)));
+                        for j = 1:numel(curr_det_ind)
+                            cost = estimate_3D_GIOU(currTracks(t), Detections(curr_det_ind(j)));
                             cost_matrix(t, j) = cost;
                         end
                     end
@@ -119,7 +124,7 @@ for runId=222:222
                         % assignment pair
                         for ind = 1:size(assignments, 1)
                             track_ind = assignments(ind, 1);
-                            detection_ind = assignments(ind, 2);
+                            detection_ind = curr_det_ind(assignments(ind, 2));
                             % check if is_stale is True
                             % since there is an active detection matching
                             % the track, remove the is_stale flag
@@ -179,9 +184,9 @@ for runId=222:222
                     
                     for t = 1:size(currTracks, 1)
                         % write the track to the table
-                        isql = sprintf('INSERT INTO [dbo].[Lidar%uTrackCs] ', iLidarNum);
+                        isql = sprintf('INSERT INTO [GTTRAnalysis].[dbo].[Lidar%uTrackCs] ', iLidarNum);
                         isql = sprintf('%s ([Vehicle], [RunId], [TimeCs], [Frame], [ObjCnt]', isql );
-                        isql = sprintf('%s , [TrackId], [X], [Y], [Z]', isql );
+                        isql = sprintf('%s , [Track], [X], [Y], [Z]', isql );
                         isql = sprintf('%s , [Sx], [Sy], [Sz], [Rot]) ', isql );
                         isql = sprintf('%s VALUES ( ', isql );
                         isql = sprintf('%s %u, ', isql, 1 );
@@ -190,14 +195,15 @@ for runId=222:222
                         isql = sprintf('%s %u, ', isql, frameId);
                         isql = sprintf('%s %u, ', isql, currTracks(t).ObjCnt);
                         isql = sprintf('%s %u, ', isql, currTracks(t).TrackId);
-                        for state_ind = 1:7
-                            isql = sprintf('%s %f, ', isql, currTracks(t).state(state_ind));
+                        for state_ind = 1:6
+                            isql = sprintf(' %s %f,', isql, currTracks(t).state(state_ind));
                         end
-                        isql = sprintf('%s )', isql);
+                        isql = sprintf(' %s %f)', isql, currTracks(t).state(7));
+ 
                         curs = exec(conn,isql);
                         % run prediction step of kalman filter to get updated 
                         % state and covariance
-                        [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
+                        % [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
                     end
                     fprintf('Wrote tracks from frame id = %d\n', frameId);
                 end

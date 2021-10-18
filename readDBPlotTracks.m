@@ -1,4 +1,4 @@
-% Basic SQL Querying GTTR4CPU::LidarObjects data
+% Basic SQL Querying GTTRAnalysis::LidarObjects data
 %
 %
 
@@ -6,7 +6,7 @@ clear
 clc
 warning('off')
 
-conn = database('GTTR4CPU','','');
+conn = database('GTTRAnalysis','','');
 tic
 
 
@@ -18,7 +18,7 @@ S = rng(2018);
 for i=222:222
 
     % read summary data for runId to find initTime and finalTime
-    sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTR4CPU].[dbo].[Lidar1ObjCs] where RunId = ';
+    sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTRAnalysis].[dbo].[Lidar1ObjCs] where RunId = ';
 
     runId = i;
     sqlStr = [sqlStr1 num2str(runId)];
@@ -34,6 +34,18 @@ for i=222:222
     % detections using the tracker.
     time = initTime;       % Start time
     dT = 5;                % Time step  Object detections at 20 Hz
+    
+    %Read the objects for the RunId
+    %sqlStr1 = ' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar1ObjCs] where runid = ';
+    %sqlStr2 = '  and TimeCs >= 0 order by Vehicle, RunId, TimeCs, ObjCnt';
+    sqlStr1 = sprintf(' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar%uObjCs] where runid = %u', 1, runId);
+    sqlStr1 = sprintf('%s and abs(1 - 1/(1+SQUARE(((TimeCs-1435)/90))) - (30.06+X)/24.23) < .3 and TimeCs > 1300 and Y > 0 and Y < 2', sqlStr1);
+    sqlStr2 = '  order by Vehicle, RunId, TimeCs, ObjCnt';
+
+    sqlStr = [sqlStr1 sqlStr2];
+    curs = exec(conn,sqlStr);
+    ObjectsC = fetch(conn,sqlStr);
+    Detections = table2struct(ObjectsC);
 
 
     % Read the Tracks from Lidar%uTrackCs
@@ -42,7 +54,7 @@ for i=222:222
     sqlStr = sprintf('SELECT [Vehicle],[RunId],[TimeCs] as time, [Frame], [Track] as TrackId,');
     sqlStr = sprintf('%s [X] as St1, [Y] as St2, [Z] as St3,', sqlStr);
     sqlStr = sprintf('%s [Sx] as St4, [Sy] as St5, [Sz] as St6, [Rot] as St7', sqlStr);
-    sqlStr = sprintf('%s FROM [GTTR4CPU].[dbo].[Lidar1TrackCs] where RunId = %d', sqlStr, runId);
+    sqlStr = sprintf('%s FROM [GTTRAnalysis].[dbo].[Lidar1TrackCs] where RunId = %d', sqlStr, runId);
     sqlStr = sprintf('%s Order By Vehicle, RunId, time, TrackId', sqlStr);
     
     curs = exec(conn,sqlStr); 
@@ -71,23 +83,36 @@ for i=222:222
     rgb_tracks = rand(size(unique_tracks, 2), 3);
     all_tracks_X = [currTracks.X];
     all_tracks_Y = [currTracks.Y];
-    min_x = min(track.X) - 20;
-    max_x = max(track.X) + 20;
-    min_y = min(track.Y) - 20;
-    max_y = max(track.Y) + 20;
+    min_x = min([currTracks.X]) - 20;
+    max_x = max([max([currTracks.X]) + 20, 20]);
+    min_y = min([currTracks.Y]) - 20;
+    max_y = max([max([currTracks.Y]) + 20, 20]);
     
     for frameId = minFrame:maxFrame
-        ind = find([currTracks.Frame] == frameId);
-        if ~isempty(ind)
-            for j = 1:size(ind, 1)
-                id = sprintf('%d', currTracks(ind(j)).TrackId);
-                unique_ind = find(currTracks(ind(j)).TrackId == unique_tracks);
+        ind_d = find([Detections.Frame] == frameId);
+        ind_t = find([currTracks.Frame] == frameId);
+        if ~isempty(ind_d) && ~isempty(ind_t)
+            for j = 1:size(ind_d, 1)
+                id = sprintf('O%d', Detections(ind_d(j)).ObjCnt);
+                rgb = [rand, rand, rand];
+                draw_rectangle(Detections(ind_d(j)).X,...
+                               Detections(ind_d(j)).Y,...
+                               Detections(ind_d(j)).Sx,...
+                               Detections(ind_d(j)).Sy,...
+                               Detections(ind_d(j)).Rot,...
+                               rgb,... 
+                               id);
+                axis([min_x max_x min_y max_y])
+            end
+            for j = 1:size(ind_t, 1)
+                id = sprintf('%d', currTracks(ind_t(j)).TrackId);
+                unique_ind = find(currTracks(ind_t(j)).TrackId == unique_tracks);
                 rgb = rgb_tracks(unique_ind, :);
-                draw_rectangle(currTracks(ind(j)).X,...
-                               currTracks(ind(j)).Y,...
-                               currTracks(ind(j)).Sx,...
-                               currTracks(ind(j)).Sy,...
-                               currTracks(ind(j)).Rot,...
+                draw_rectangle(currTracks(ind_t(j)).X,...
+                               currTracks(ind_t(j)).Y,...
+                               currTracks(ind_t(j)).Sx,...
+                               currTracks(ind_t(j)).Sy,...
+                               currTracks(ind_t(j)).Rot,...
                                rgb,... 
                                id);
                 axis([min_x max_x min_y max_y])
