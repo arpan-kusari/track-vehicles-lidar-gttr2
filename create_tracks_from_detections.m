@@ -9,17 +9,18 @@ warning('off')
 
 %% Basic SQL Querying GTTRAnalysis::LidarObjects data
 
-conn = database('GTTRAnalysis','','');
+conn_gttr4 = database('GTTR4CPU','','');
+conn_analysis = database('GttrAnalysis','','');
 % select the runids to process
-for runId=222:222
+for runId=448:448
     for iLidarNum=1:2
         % read summary data for runId to find initTime and finalTime
         % sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTR4CPU].[dbo].[Lidar1Obj] where RunId = ';
-        sqlStr1 = sprintf('SELECT [TimeCs], [Frame] FROM [GTTRAnalysis].[dbo].[Lidar%uObjCs] where RunId = ', iLidarNum);
+        sqlStr1 = sprintf('SELECT [TimeCs], [Frame] FROM [GTTR4CPU].[dbo].[Lidar%uObjCalibratedCs] where RunId = ', iLidarNum);
         sqlStr2 = ' order by TimeCs, Frame';
         sqlStr = [sqlStr1 num2str(runId) sqlStr2];
-        curs = exec(conn,sqlStr); 
-        tripsC = fetch(conn,sqlStr);
+        curs = exec(conn_gttr4,sqlStr); 
+        tripsC = fetch(conn_gttr4,sqlStr);
         if (numel(tripsC) > 0)
 
             initTime = tripsC.TimeCs(1);
@@ -38,13 +39,13 @@ for runId=222:222
             %Read the objects for the RunId
             %sqlStr1 = ' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar1ObjCs] where runid = ';
             %sqlStr2 = '  and TimeCs >= 0 order by Vehicle, RunId, TimeCs, ObjCnt';
-            sqlStr1 = sprintf(' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar%uObjCs] where runid = %u', iLidarNum, runId);
-            sqlStr1 = sprintf('%s and abs(1 - 1/(1+SQUARE(((TimeCs-1435)/90))) - (30.06+X)/24.23) < .3 and TimeCs > 1300 and Y > 0 and Y < 2', sqlStr1);
+            sqlStr1 = sprintf(' SELECT * FROM [GTTR4CPU].[dbo].[Lidar%uObjCalibratedCs] where runid = %u', iLidarNum, runId);
+            %sqlStr1 = sprintf('%s and abs(1 - 1/(1+SQUARE(((TimeCs-1435)/90))) - (30.06+X)/24.23) < .3 and TimeCs > 1300 and Y > 0 and Y < 2', sqlStr1);
             sqlStr2 = '  order by Vehicle, RunId, TimeCs, ObjCnt';
             
             sqlStr = [sqlStr1 sqlStr2];
-            curs = exec(conn,sqlStr);
-            ObjectsC = fetch(conn,sqlStr);
+            curs = exec(conn_gttr4,sqlStr);
+            ObjectsC = fetch(conn_gttr4,sqlStr);
             Detections = table2struct(ObjectsC);
             
             % Initiate all tracks.
@@ -86,9 +87,9 @@ for runId=222:222
                     for j = 1:numel(ind)
                         currTracks(num_tracks).ObjCnt = Detections(ind(j)).ObjCnt;
                         currTracks(num_tracks).TrackId = num_tracks;
-                        currTracks(num_tracks).state = [Detections(ind(j)).X,...
-                                                        Detections(ind(j)).Y,...
-                                                        Detections(ind(j)).Z,...
+                        currTracks(num_tracks).state = [Detections(ind(j)).XV,...
+                                                        Detections(ind(j)).YV,...
+                                                        Detections(ind(j)).ZV,...
                                                         Detections(ind(j)).Sx,...
                                                         Detections(ind(j)).Sy,...
                                                         Detections(ind(j)).Sz,...
@@ -133,9 +134,9 @@ for runId=222:222
                                 currTracks(track_ind).stale_time = 0;
                             end
                             % filter step based on new measurement
-                            meas = [Detections(detection_ind).X;...
-                                    Detections(detection_ind).Y;...
-                                    Detections(detection_ind).Z;...
+                            meas = [Detections(detection_ind).XV;...
+                                    Detections(detection_ind).YV;...
+                                    Detections(detection_ind).ZV;...
                                     Detections(detection_ind).Sx;...
                                     Detections(detection_ind).Sy;...
                                     Detections(detection_ind).Sz;...
@@ -168,9 +169,9 @@ for runId=222:222
                             num_tracks = size(currTracks,1);
                             num_tracks = num_tracks + 1;
                             currTracks(num_tracks).TrackId = num_tracks;
-                            currTracks(num_tracks).state = [Detections(detection_ind).X,...
-                                                            Detections(detection_ind).Y,...
-                                                            Detections(detection_ind).Z,...
+                            currTracks(num_tracks).state = [Detections(detection_ind).XV,...
+                                                            Detections(detection_ind).YV,...
+                                                            Detections(detection_ind).ZV,...
                                                             Detections(detection_ind).Sx,...
                                                             Detections(detection_ind).Sy,...
                                                             Detections(detection_ind).Sz,...
@@ -200,7 +201,7 @@ for runId=222:222
                         end
                         isql = sprintf(' %s %f)', isql, currTracks(t).state(7));
  
-                        curs = exec(conn,isql);
+                        curs = exec(conn_analysis,isql);
                         % run prediction step of kalman filter to get updated 
                         % state and covariance
                         % [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
