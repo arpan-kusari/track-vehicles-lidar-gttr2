@@ -67,8 +67,8 @@ bb_overlap_2D = [max([bb_track_2D(1), bb_detection_2D(1)]),...
                  max([bb_track_2D(2), bb_detection_2D(2)]),...
                  min([bb_track_2D(3), bb_detection_2D(3)]),...
                  min([bb_track_2D(4), bb_detection_2D(4)])];
-area_overlap = (bb_overlap_2D(3) - bb_overlap_2D(1))*(bb_overlap_2D(4)-bb_overlap_2D(2));
-height_overlap = min(track_Z + track_Sz, detection.ZV + detection.Sz) - max(track_Z - track_Sz, detection.ZV - detection.Sz);
+area_overlap = max([0, bb_overlap_2D(3) - bb_overlap_2D(1)])*max([0, bb_overlap_2D(4)-bb_overlap_2D(2)]);
+height_overlap = min(abs(track_Z) + track_Sz/2, abs(detection.ZV) + detection.Sz/2) - max(abs(track_Z) - track_Sz/2, abs(detection.ZV) - detection.Sz/2);
 
 if area_overlap <= 0
     intersection_3D = 0;
@@ -86,6 +86,8 @@ union_vol = vol_track + vol_detection - intersection_3D;
 IOU_3D = intersection_3D/union_vol;
 GIOU_3D = IOU_3D - ((vol_enclosed - union_vol)/vol_enclosed);
 cost = 1 - GIOU_3D;
+if cost < 0
+    print('blah')
 % figure(1);
 % plot([bb_enclosed_2D(:, 1); bb_enclosed_2D(1,1)], [bb_enclosed_2D(:, 2); bb_enclosed_2D(1,2)], 'k-');
 % hold on;
