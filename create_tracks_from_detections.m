@@ -10,7 +10,8 @@ warning('off')
 %% Basic SQL Querying GTTRAnalysis::LidarObjects data
 
 conn_gttr4 = database('GTTR4CPU','','');
-conn_analysis = database('GttrAnalysis','','');
+conn_analysis = database('GTTRAnalysis','','');
+delta_t = 0.05; % Time step object detections at 20 Hz
 % select the runids to process
 for runId=448:448
     for iLidarNum=1:2
@@ -22,25 +23,8 @@ for runId=448:448
         curs = exec(conn_gttr4,sqlStr); 
         tripsC = fetch(conn_gttr4,sqlStr);
         if (numel(tripsC) > 0)
-
-            initTime = tripsC.TimeCs(1);
-            finalTime = tripsC.TimeCs(numel(tripsC.TimeCs));
-            minFrame = tripsC.Frame(1);
-            maxFrame = tripsC.Frame(numel(tripsC.TimeCs));
-
-            % Loop through the recorded lidar data, generate detections from the
-            % current point cloud using the detector model and then process the
-            % detections using the tracker.
-            time = initTime;       % Start time
-            prevTime = -1;
-            delta_t = 0.05;               % Time step  Object detections at 20 Hz
-
-
             %Read the objects for the RunId
-            %sqlStr1 = ' SELECT * FROM [GTTRAnalysis].[dbo].[Lidar1ObjCs] where runid = ';
-            %sqlStr2 = '  and TimeCs >= 0 order by Vehicle, RunId, TimeCs, ObjCnt';
             sqlStr1 = sprintf(' SELECT * FROM [GTTR4CPU].[dbo].[Lidar%uObjCalibratedCs] where runid = %u', iLidarNum, runId);
-            %sqlStr1 = sprintf('%s and abs(1 - 1/(1+SQUARE(((TimeCs-1435)/90))) - (30.06+X)/24.23) < .3 and TimeCs > 1300 and Y > 0 and Y < 2', sqlStr1);
             sqlStr2 = '  order by Vehicle, RunId, TimeCs, ObjCnt';
             
             sqlStr = [sqlStr1 sqlStr2];
@@ -50,8 +34,9 @@ for runId=448:448
             
             % Initiate all tracks.
             currTracks = struct('ObjCnt', [], 'TrackId', [], 'state', [], 'cov', [], 'is_stale', [], 'stale_time', []);
-            minFrame = max(minFrame, min(ObjectsC.Frame));
-            maxFrame = min(maxFrame, max(ObjectsC.Frame));
+
+            
+            unique_time = unique(ObjectsC.TimeCs);
             % Value of loss_GIOU = [0, 2)
             % From "Distance-IoU Loss: Faster and Better Learning for
             % Bounding Box Regression"
@@ -67,33 +52,26 @@ for runId=448:448
             %stale observation limit
             num_stale = 10;
             % Loop through the data
-            for frameId = minFrame:maxFrame
+            for ind = 1:length(unique_time)
                 % Update time
-                %time = time + dT;
-                for i = 1:numel(tripsC.TimeCs)
-                   if (frameId == tripsC.Frame(i))
-                       time = tripsC.TimeCs(i);
-                       break;
-                   end
-                end
-
+                curr_time = unique_time(ind);
                 % Load the detections array with objects that were previously
                 % detected by the model zoo
                 % for the first frame, by default, make the detections as
                 % the track
-                if (frameId == minFrame)
+                if (ind == 1)
                     num_tracks = 1;
-                    ind = find(ObjectsC.Frame == frameId);
+                    curr_ind = find(ObjectsC.TimeCs == curr_time);
                     for j = 1:numel(ind)
-                        currTracks(num_tracks).ObjCnt = Detections(ind(j)).ObjCnt;
+                        currTracks(num_tracks).ObjCnt = Detections(curr_ind(j)).ObjCnt;
                         currTracks(num_tracks).TrackId = num_tracks;
-                        currTracks(num_tracks).state = [Detections(ind(j)).XV,...
-                                                        Detections(ind(j)).YV,...
-                                                        Detections(ind(j)).ZV,...
-                                                        Detections(ind(j)).Sx,...
-                                                        Detections(ind(j)).Sy,...
-                                                        Detections(ind(j)).Sz,...
-                                                        Detections(ind(j)).Rot,...
+                        currTracks(num_tracks).state = [Detections(curr_ind(j)).XV,...
+                                                        Detections(curr_ind(j)).YV,...
+                                                        Detections(curr_ind(j)).ZV,...
+                                                        Detections(curr_ind(j)).Sx,...
+                                                        Detections(curr_ind(j)).Sy,...
+                                                        Detections(curr_ind(j)).Sz,...
+                                                        Detections(curr_ind(j)).Rot,...
                                                         0, 0, 0, 0, 0, 0, 0]';
                         currTracks(num_tracks).cov = cov_start;
                         currTracks(num_tracks).is_stale = false;
@@ -106,7 +84,7 @@ for runId=448:448
                         % state and covariance
                         [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
                     end
-                    curr_det_ind = find(ObjectsC.Frame == frameId);
+                    curr_det_ind = find(ObjectsC.TimeCs == curr_time);
                     
                     % we have to associate the detections to tracks
                     cost_matrix = zeros(size(currTracks, 1), numel(curr_det_ind));
