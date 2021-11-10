@@ -77,6 +77,7 @@ for runId=448:448
                         currTracks(num_tracks).is_stale = false;
                         currTracks(num_tracks).stale_time = 0;
                         num_tracks = num_tracks + 1;
+                        frameId = Detections(curr_ind(j)).Frame;
                     end
                 else
                     for t = 1:size(currTracks, 1)
@@ -170,7 +171,7 @@ for runId=448:448
                         isql = sprintf('%s VALUES ( ', isql );
                         isql = sprintf('%s %u, ', isql, 1 );
                         isql = sprintf('%s %u, ', isql, runId );
-                        isql = sprintf('%s %u, ', isql, time );
+                        isql = sprintf('%s %u, ', isql, curr_time );
                         isql = sprintf('%s %u, ', isql, frameId);
                         isql = sprintf('%s %u, ', isql, currTracks(t).ObjCnt);
                         isql = sprintf('%s %u, ', isql, currTracks(t).TrackId);
@@ -184,7 +185,7 @@ for runId=448:448
                         % state and covariance
                         % [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
                     end
-                    fprintf('Wrote tracks from frame id = %d\n', frameId);
+                    fprintf('Wrote tracks fron time = %d\n', curr_time);
                 end
                 
             end
