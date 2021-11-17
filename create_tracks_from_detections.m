@@ -13,7 +13,7 @@ conn_gttr4 = database('GTTR4CPU','','');
 conn_analysis = database('GTTRAnalysis','','');
 delta_t = 0.05; % Time step object detections at 20 Hz
 % select the runids to process
-for runId=448:448
+for runId=447:447
     for iLidarNum=1:2
         % read summary data for runId to find initTime and finalTime
         % sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTR4CPU].[dbo].[Lidar1Obj] where RunId = ';
@@ -22,6 +22,10 @@ for runId=448:448
         sqlStr = [sqlStr1 num2str(runId) sqlStr2];
         curs = exec(conn_gttr4,sqlStr); 
         tripsC = fetch(conn_gttr4,sqlStr);
+        
+        isql = sprintf('DELETE FROM [GttrAnalysis].[dbo].[Lidar%uTrackCs] where runid = %u', iLidarNum, runId);
+        curs = exec(conn_analysis,isql);
+        
         if (numel(tripsC) > 0)
             %Read the objects for the RunId
             sqlStr1 = sprintf(' SELECT * FROM [GTTR4CPU].[dbo].[Lidar%uObjCalibratedCs] where runid = %u', iLidarNum, runId);
@@ -40,8 +44,8 @@ for runId=448:448
             % Value of loss_GIOU = [0, 2)
             % From "Distance-IoU Loss: Faster and Better Learning for
             % Bounding Box Regression"
-            % TODO: Have to check the threshold
-            costOfNonAssignment = 2;
+            % threshold about 5m distance between centroids of boxes
+            costOfNonAssignment = 1.4;
             
             % State vector for Kalman box prediction
             % x = [cx, cy, cz, l, w, h, theta, vx, vy, vz, vl, vw, vh,
@@ -86,7 +90,7 @@ for runId=448:448
                         [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
                     end
                     curr_det_ind = find(ObjectsC.TimeCs == curr_time);
-                    
+                    frameId = Detections(curr_det_ind(1)).Frame;
                     % we have to associate the detections to tracks
                     cost_matrix = zeros(size(currTracks, 1), numel(curr_det_ind));
                     for t = 1:size(currTracks,1)
