@@ -13,7 +13,7 @@ conn_gttr4 = database('GTTR4CPU','','');
 conn_analysis = database('GTTRAnalysis','','');
 delta_t = 0.05; % Time step object detections at 20 Hz
 % select the runids to process
-for runId=447:447
+for runId=71:76
     for iLidarNum=1:2
         % read summary data for runId to find initTime and finalTime
         % sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTR4CPU].[dbo].[Lidar1Obj] where RunId = ';
@@ -55,21 +55,28 @@ for runId=447:447
             meas_noise_mat = diag([0.2, 0.2, 0.2, 0.5, 0.5, 0.5, deg2rad(10)]);
             %stale observation limit
             num_stale = 10;
+            first_pass = true;
             % Loop through the data
             for ind = 1:length(unique_time)
                 % Update time
                 curr_time = unique_time(ind);
+                if curr_time < 0
+                    continue
+                elseif curr_time > 0 && first_pass == true
+                    first_pass = true
+                end
+                
                 % Load the detections array with objects that were previously
                 % detected by the model zoo
                 % for the first frame, by default, make the detections as
                 % the track
-                if (ind == 1)
+                if (first_pass == true)
                     num_tracks = 1;
                     curr_ind = find(ObjectsC.TimeCs == curr_time);
                     for j = 1:numel(ind)
-                        currTracks(num_tracks).ObjCnt = Detections(curr_ind(j)).ObjCnt;
-                        currTracks(num_tracks).TrackId = num_tracks;
-                        currTracks(num_tracks).state = [Detections(curr_ind(j)).XV,...
+                        currTracks(num_tracks, 1).ObjCnt = Detections(curr_ind(j)).ObjCnt;
+                        currTracks(num_tracks, 1).TrackId = num_tracks;
+                        currTracks(num_tracks, 1).state = [Detections(curr_ind(j)).XV,...
                                                         Detections(curr_ind(j)).YV,...
                                                         Detections(curr_ind(j)).ZV,...
                                                         Detections(curr_ind(j)).Sx,...
@@ -77,17 +84,18 @@ for runId=447:447
                                                         Detections(curr_ind(j)).Sz,...
                                                         Detections(curr_ind(j)).Rot,...
                                                         0, 0, 0, 0, 0, 0, 0]';
-                        currTracks(num_tracks).cov = cov_start;
-                        currTracks(num_tracks).is_stale = false;
-                        currTracks(num_tracks).stale_time = 0;
+                        currTracks(num_tracks, 1).cov = cov_start;
+                        currTracks(num_tracks, 1).is_stale = false;
+                        currTracks(num_tracks, 1).stale_time = 0;
                         num_tracks = num_tracks + 1;
                         frameId = Detections(curr_ind(j)).Frame;
                     end
+                    first_pass = false;
                 else
                     for t = 1:size(currTracks, 1)
                         % run prediction step of kalman filter to get updated 
                         % state and covariance
-                        [currTracks(t).state, currTracks(t).cov] = predict_kalman(currTracks(t).state, currTracks(t).cov, delta_t);
+                        [currTracks(t, 1).state, currTracks(t, 1).cov] = predict_kalman(currTracks(t, 1).state, currTracks(t, 1).cov, delta_t);
                     end
                     curr_det_ind = find(ObjectsC.TimeCs == curr_time);
                     frameId = Detections(curr_det_ind(1)).Frame;
@@ -95,7 +103,7 @@ for runId=447:447
                     cost_matrix = zeros(size(currTracks, 1), numel(curr_det_ind));
                     for t = 1:size(currTracks,1)
                         for j = 1:numel(curr_det_ind)
-                            cost = estimate_3D_GIOU(currTracks(t), Detections(curr_det_ind(j)));
+                            cost = estimate_3D_GIOU(currTracks(t, 1), Detections(curr_det_ind(j)));
                             cost_matrix(t, j) = cost;
                         end
                     end
@@ -112,9 +120,9 @@ for runId=447:447
                             % check if is_stale is True
                             % since there is an active detection matching
                             % the track, remove the is_stale flag
-                            if(currTracks(track_ind).is_stale == true)
-                                currTracks(track_ind).is_stale = false;
-                                currTracks(track_ind).stale_time = 0;
+                            if(currTracks(track_ind, 1).is_stale == true)
+                                currTracks(track_ind, 1).is_stale = false;
+                                currTracks(track_ind, 1).stale_time = 0;
                             end
                             % filter step based on new measurement
                             meas = [Detections(detection_ind).XV;...
@@ -124,10 +132,11 @@ for runId=447:447
                                     Detections(detection_ind).Sy;...
                                     Detections(detection_ind).Sz;...
                                     Detections(detection_ind).Rot];
-                            [state_est, cov_est] = update_kalman(currTracks(track_ind).state, currTracks(track_ind).cov, meas, meas_noise_mat);
-                            currTracks(track_ind).ObjCnt = Detections(detection_ind).ObjCnt;
-                            currTracks(track_ind).state = state_est;
-                            currTracks(track_ind).cov = cov_est;
+                            [state_est, cov_est] = update_kalman(currTracks(track_ind, 1).state, currTracks(track_ind, 1).cov, meas, meas_noise_mat);
+                            currTracks(track_ind, 1).ObjCnt = Detections(detection_ind).ObjCnt;
+                            currTracks(track_ind, 1).TrackId = track_ind;
+                            currTracks(track_ind, 1).state = state_est;
+                            currTracks(track_ind, 1).cov = cov_est;
                         end
                     end
                     % check if there are unassignedTracks
@@ -136,11 +145,13 @@ for runId=447:447
                             % if there are, make them stale and start counting
                             % time
                             % if greater than time limit, then remove track
-                            if (currTracks(unassignedTracks(ind)).is_stale == true && currTracks(unassignedTracks(ind)).stale_time > delta_t*num_stale)
-                                currTracks(unassignedTracks(ind)) = [];
+                            if (currTracks(unassignedTracks(ind), 1).is_stale == true && currTracks(unassignedTracks(ind), 1).stale_time > delta_t*num_stale)
+                                currTracks([unassignedTracks(ind)]) = [];
+                                unassignedTracks(ind+1:end, 1) = unassignedTracks(ind+1:end, 1) - 1;
+                            else
+                                currTracks(unassignedTracks(ind), 1).is_stale = true;
+                                currTracks(unassignedTracks(ind), 1).stale_time = currTracks(unassignedTracks(ind), 1).stale_time + delta_t;
                             end
-                            currTracks(unassignedTracks(ind)).is_stale = true;
-                            currTracks(unassignedTracks(ind)).stale_time = currTracks(unassignedTracks(ind)).stale_time + delta_t;
                         end
                     end
                     % check if there are unassignedDetections
@@ -151,18 +162,18 @@ for runId=447:447
                             detection_ind = unassignedDetections(ind);
                             num_tracks = size(currTracks,1);
                             num_tracks = num_tracks + 1;
-                            currTracks(num_tracks).TrackId = num_tracks;
-                            currTracks(num_tracks).state = [Detections(detection_ind).XV,...
-                                                            Detections(detection_ind).YV,...
-                                                            Detections(detection_ind).ZV,...
-                                                            Detections(detection_ind).Sx,...
-                                                            Detections(detection_ind).Sy,...
-                                                            Detections(detection_ind).Sz,...
-                                                            Detections(detection_ind).Rot,...
-                                                            0, 0, 0, 0, 0, 0, 0]';
-                            currTracks(num_tracks).cov = cov_start;
-                            currTracks(num_tracks).is_stale = false;
-                            currTracks(num_tracks).stale_time = 0;
+                            currTracks(num_tracks, 1).TrackId = num_tracks;
+                            currTracks(num_tracks, 1).state = [Detections(detection_ind).XV,...
+                                                               Detections(detection_ind).YV,...
+                                                               Detections(detection_ind).ZV,...
+                                                               Detections(detection_ind).Sx,...
+                                                               Detections(detection_ind).Sy,...
+                                                               Detections(detection_ind).Sz,...
+                                                               Detections(detection_ind).Rot,...
+                                                               0, 0, 0, 0, 0, 0, 0]';
+                            currTracks(num_tracks, 1).cov = cov_start;
+                            currTracks(num_tracks, 1).is_stale = false;
+                            currTracks(num_tracks, 1).stale_time = 0;
                         end
                     end
                     
@@ -177,12 +188,12 @@ for runId=447:447
                         isql = sprintf('%s %u, ', isql, runId );
                         isql = sprintf('%s %u, ', isql, curr_time );
                         isql = sprintf('%s %u, ', isql, frameId);
-                        isql = sprintf('%s %u, ', isql, currTracks(t).ObjCnt);
-                        isql = sprintf('%s %u, ', isql, currTracks(t).TrackId);
+                        isql = sprintf('%s %u, ', isql, currTracks(t, 1).ObjCnt);
+                        isql = sprintf('%s %u, ', isql, currTracks(t, 1).TrackId);
                         for state_ind = 1:6
-                            isql = sprintf(' %s %f,', isql, currTracks(t).state(state_ind));
+                            isql = sprintf(' %s %f,', isql, currTracks(t, 1).state(state_ind));
                         end
-                        isql = sprintf(' %s %f)', isql, currTracks(t).state(7));
+                        isql = sprintf(' %s %f)', isql, currTracks(t, 1).state(7));
  
                         curs = exec(conn_analysis,isql);
                         % run prediction step of kalman filter to get updated 

@@ -18,7 +18,7 @@ S = rng(2018);
 for i=222:222
 
     % read summary data for runId to find initTime and finalTime
-    sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTRAnalysis].[dbo].[Lidar1ObjCs] where RunId = ';
+    sqlStr1 = 'SELECT min([TimeCs]) as StartTime,max([TimeCs]) as EndTime, min([Frame]) as MinFrame, max([Frame]) as MaxFrame FROM [GTTRAnalysis].[dbo].[Lidar1ObjCalibratedCs] where RunId = ';
 
     runId = i;
     sqlStr = [sqlStr1 num2str(runId)];
