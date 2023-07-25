@@ -16,6 +16,6 @@ function[]= draw_rectangle(Cx, Cy,L,H,theta,rgb, id)
     x_coor=[x_lower_left x_lower_right x_upper_right x_upper_left];
     y_coor=[y_lower_left y_lower_right y_upper_right y_upper_left];
     patch('Vertices',[x_coor; y_coor]','Faces',[1 2 3 4],'Edgecolor',rgb,'Facecolor','none','Linewidth',1.2);
-    text(Cx, Cy, id, 'Color', rgb, 'FontSize', 10);
-    % axis equal;
+    %text(Cx, Cy, id, 'Color', rgb, 'FontSize', 10);
+    axis equal;
 end

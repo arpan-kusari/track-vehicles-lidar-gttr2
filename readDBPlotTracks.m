@@ -6,7 +6,8 @@ clear
 clc
 warning('off')
 
-conn = database('GTTRAnalysis','','');
+conn = database('GttrAnalysis','','');
+conn.Message;
 tic
 
 
@@ -37,7 +38,7 @@ for i=260:260
 
     runId = i;
     sqlStr = [sqlStr1 num2str(runId)];
-    curs = exec(conn,sqlStr); %#ok<NASGU>
+    %curs = exec(conn,sqlStr); %#ok<NASGU>
     tripsC = fetch(conn,sqlStr);
     initTime = tripsC.StartTime;
     finalTime = tripsC.EndTime;
@@ -58,10 +59,23 @@ for i=260:260
     sqlStr2 = '  order by Vehicle, RunId, TimeCs, ObjCnt';
 
     sqlStr = [sqlStr1 sqlStr2];
-    curs = exec(conn,sqlStr);
+    %curs = exec(conn,sqlStr);
     ObjectsC = fetch(conn,sqlStr);
     Detections = table2struct(ObjectsC);
+    fieldNames = fieldnames(Detections);
 
+    %Display the attributes and values using a loop
+%     fprintf('Attributes and Values of the Structure:\n');
+%     for h = 1:3
+%         for k = 1:numel(fieldNames)
+%             attributeName = fieldNames{k};
+%             attributeValue = Detections(h).(attributeName);
+%             
+%             fprintf('%s: ', attributeName);
+%             disp(attributeValue);
+%         end
+    % end
+    %disp(cell2mat({Detections.TimeGps}));
 
     % Read the Tracks from Lidar%uTrackCs
     % read summary data for runId to find initTime and finalTime
@@ -72,7 +86,7 @@ for i=260:260
     sqlStr = sprintf('%s FROM [GttrV2Analysis].[dbo].[LidarTrackCs] where RunId = %d', sqlStr, runId);
     sqlStr = sprintf('%s Order By Vehicle, RunId, time, TrackId', sqlStr);
     
-    curs = exec(conn,sqlStr); 
+    %curs = exec(conn,sqlStr); 
     DBHistoryC = fetch(conn,sqlStr);
     
     Lidar_folder = "\\tri-gt1\Gttr4CPUv2\00001\Main\" + "001-00" + runId + "\";
@@ -80,7 +94,7 @@ for i=260:260
     timefile = memmapfile(Lidar_folder + "timeFile", 'Format', {'uint64', [1,1], 'TimeGps'; 'uint32', [1, 1], 'Count'}, 'Repeat', Inf);
 
     Data = timefile.Data;
-    TimeGps = double([Data.TimeGps]);
+    TimeGpsArr = double([Data.TimeGps]);
     Count = double([Data.Count]);
     % Loop through the cursor, to load the history.    
     % Initiate all tracks.
@@ -115,48 +129,58 @@ for i=260:260
     for frameId = minFrame:maxFrame
         ind_d = find([Detections.Frame] == frameId);
         ind_t = find([currTracks.Frame] == frameId);
-        [~, ind_pc] = min(abs(TimeGps - Detections(ind_d).TimeGps));
+
+        if isempty(ind_d) || isempty(ind_t)
+            continue;
+        end
+
+%         disp("hi");
+%         disp(ind_d);
+%         disp(size(cell2mat({Detections(ind_d).TimeGps})));
+
+        TimeGpsDetectionArr = cell2mat({Detections(ind_d).TimeGps});
+        disp(size(unique(TimeGpsDetectionArr))); %always 1x1? if not, what would we subtract from TimeGpsArr in the next line?
+        [~, ind_pc] = min(abs(TimeGpsArr - TimeGpsDetectionArr(1)));
         las = lasFileReader(Lidar_folder + sprintf('%06d', Count(ind_pc)) + ".laz");
         pc = readPointCloud(las);
         pcshow(pc);
-        plot(0, 0, 'bo', 'MarkerSize', 20);
-        if ~isempty(ind_d) && ~isempty(ind_t)
-%             for j = 1:size(ind_d, 1)
-%                 id = sprintf('O%d', Detections(ind_d(j)).ObjCnt);
-%                 rgb = [rand, rand, rand];
-%                 draw_rectangle(Detections(ind_d(j)).XTV,...
-%                                Detections(ind_d(j)).YTV,...
-%                                Detections(ind_d(j)).Sx,...
-%                                Detections(ind_d(j)).Sy,...
-%                                Detections(ind_d(j)).RotV,...
-%                                rgb,... 
-%                                id);
-%                 axis([min_x max_x min_y max_y])
-%             end
-            for j = 1:size(ind_t, 1)
-                id = sprintf('%d', currTracks(ind_t(j)).TrackId);
-                unique_ind = find(currTracks(ind_t(j)).TrackId == unique_tracks);
-                rgb = rgb_tracks(unique_ind, :);
-                draw_rectangle(currTracks(ind_t(j)).X,...
-                               currTracks(ind_t(j)).Y,...
-                               currTracks(ind_t(j)).Sx,...
-                               currTracks(ind_t(j)).Sy,...
-                               currTracks(ind_t(j)).Rot,...
-                               rgb,... 
-                               id);
-                axis([min_x max_x min_y max_y])
-            end
-            f = getframe(fig); 
-            im = frame2im(f); 
-            [imind,cm] = rgb2ind(im,256); 
-            if count == 1
-                imwrite(imind,cm,output_filename, 'gif', 'Loopcount',inf);
-            else
-                imwrite(imind,cm,output_filename,'gif','WriteMode','append'); 
-            end
-            pause(0.1);
-            clf(fig);
-            count = count + 1;
+%        plot(0, 0, 'bo', 'MarkerSize', 20);
+        
+        for j = 1:size(ind_d, 1)
+            id = sprintf('O%d', Detections(ind_d(j)).ObjCnt);
+            rgb = [rand, rand, rand];
+            draw_rectangle(Detections(ind_d(j)).XTV,...
+                           Detections(ind_d(j)).YTV,...
+                           Detections(ind_d(j)).Sx,...
+                           Detections(ind_d(j)).Sy,...
+                           Detections(ind_d(j)).RotV,...
+                           rgb,... 
+                           id);
+            axis([min_x max_x min_y max_y])
         end
+        for j = 1:size(ind_t, 1)
+            id = sprintf('%d', currTracks(ind_t(j)).TrackId);
+            unique_ind = find(currTracks(ind_t(j)).TrackId == unique_tracks);
+            rgb = rgb_tracks(unique_ind, :);
+            draw_rectangle(currTracks(ind_t(j)).X,...
+                           currTracks(ind_t(j)).Y,...
+                           currTracks(ind_t(j)).Sx,...
+                           currTracks(ind_t(j)).Sy,...
+                           currTracks(ind_t(j)).Rot,...
+                           rgb,... 
+                           id);
+            axis([min_x max_x min_y max_y])
+        end
+        f = getframe(fig); 
+        im = frame2im(f); 
+        [imind,cm] = rgb2ind(im,256); 
+        if count == 1
+            imwrite(imind,cm,output_filename, 'gif', 'Loopcount',inf);
+        else
+            imwrite(imind,cm,output_filename,'gif','WriteMode','append'); 
+        end
+        pause(0.1);
+        clf(fig);
+        count = count + 1;
     end
 end
